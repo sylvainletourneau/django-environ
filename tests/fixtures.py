@@ -85,4 +85,6 @@ class FakeEnv:
                     EXPORTED_VAR=cls.EXPORTED,
                     SAML_ATTRIBUTE_MAPPING='uid=username;mail=email;cn=first_name;sn=last_name;',
                     PREFIX_TEST='foo',
+                    EMBEDDED_VAR_SRC_SIMPLE="bar",
+                    EMBEDDED_VAR_SRC_WITH_SLASH="C:\\Users"
                     )

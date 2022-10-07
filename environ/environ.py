@@ -408,6 +408,17 @@ class Env:
 
             value = default
 
+        # Expend embedded variables (e.g., FOO=${BAR}_some_text${BAR}__some_more_stuf_${BAR2})
+        if isinstance(value, str):
+            regex = r"\$\{(.*?)\}"
+            embedded_vars = set()
+            [embedded_vars.add(m.groups()[0]) for m in re.finditer(regex, value)]
+            for v in embedded_vars:
+                var_value = self.get_value(v)
+                if isinstance(var_value, str):
+                    var_value = var_value.replace('\\', r'\\')
+                value = re.sub(r"\$\{%s\}" % v, var_value, value)
+
         # Resolve any proxied values
         prefix = b'$' if isinstance(value, bytes) else '$'
         escape = rb'\$' if isinstance(value, bytes) else r'\$'

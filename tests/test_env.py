@@ -346,6 +346,28 @@ class TestEnv:
         self.env.prefix = 'PREFIX_'
         assert self.env('TEST') == 'foo'
 
+    @pytest.mark.parametrize(
+            'test_var,expected',
+            [
+                ('${EMBEDDED_VAR_SRC_SIMPLE}_with_a_suffix',
+                 'bar_with_a_suffix'),
+                ('a_prefix_${EMBEDDED_VAR_SRC_SIMPLE}',
+                'a_prefix_bar'),
+                ('${EMBEDDED_VAR_SRC_WITH_SLASH}\\filename',
+                 'C:\\Users\\filename'),
+                ('${EMBEDDED_VAR_SRC_WITH_SLASH}\\${EMBEDDED_VAR_SRC_SIMPLE}.txt',
+                 'C:\\Users\\bar.txt')
+            ],
+            ids=[
+                'at_the_beginning',
+                'at_the_end',
+                'with_slash',
+                'multiple',
+            ],
+        )
+    def test_embedded_vars(self, test_var, expected):
+        pass
+
 
 class TestFileEnv(TestEnv):
     def setup_method(self, method):
