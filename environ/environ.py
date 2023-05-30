@@ -14,6 +14,7 @@ variables to configure your Django application.
 import ast
 import itertools
 import logging
+import pathlib
 import os
 import re
 import sys
@@ -41,10 +42,11 @@ try:
 except ImportError:  # Python 3.5 support
     from pathlib import PurePath as PathLike
 
+
 Openable = (str, PathLike)
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.DEBUG)
 
 def _cast(value):
     # Safely evaluate an expression node or a string containing a Python
@@ -886,12 +888,11 @@ class Env:
             else:
                 with env_file as f:
                     content = f.read()
-        except OSError:
+        except OSError as e:
             logger.info(
                 "%s not found - if you're not configuring your "
                 "environment separately, check this.", env_file)
             return
-
         logger.debug('Read environment variables from: %s', env_file)
 
         def _keep_escaped_format_characters(match):
@@ -917,7 +918,16 @@ class Env:
                 # ignore warnings for empty line-breaks or comments
                 pass
             else:
-                logger.warning('Invalid line: %s', line)
+                m1 = re.match(r'\Ainclude (.*)\Z', line)
+                if m1:
+                    file_path = pathlib.Path(m1.group(1).replace("\"", "").replace("\'", ""))
+                    # print(f"file_path: {file_path}, parent is: {pathlib.Path(env_file).parent}")
+                    if not file_path.is_absolute():
+                        file_path = pathlib.Path(env_file).parent / file_path
+                    cls.read_env(env_file=str(file_path), overwrite=overwrite, encoding=encoding,
+                                 **overrides)
+                else:
+                    logger.warning('Invalid line: %s', line)
 
         def set_environ(envval):
             """Return lambda to set environ.
