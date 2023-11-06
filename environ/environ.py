@@ -46,7 +46,7 @@ except ImportError:  # Python 3.5 support
 Openable = (str, PathLike)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 def _cast(value):
     # Safely evaluate an expression node or a string containing a Python
