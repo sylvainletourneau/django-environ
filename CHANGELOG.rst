@@ -5,8 +5,131 @@ All notable changes to this project will be documented in this file.
 The format is inspired by `Keep a Changelog <https://keepachangelog.com/en/1.0.0/>`_
 and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_.
 
+`v0.13.0`_ - 18-February-2026
+-----------------------------
+Added
++++++
+- Added optional warnings when defaults are used
+  `#582 <https://github.com/joke2k/django-environ/pull/582>`_.
+- Added `choices` argument support for value validation in ``Env.str(...)``
+  `#555 <https://github.com/joke2k/django-environ/pull/555>`_.
+- Added Valkey support via ``valkey://`` and ``valkeys://`` cache URL schemes
+  `#554 <https://github.com/joke2k/django-environ/pull/554>`_.
+- Added support for ``rediss://`` scheme in channels URL parsing
+  `#573 <https://github.com/joke2k/django-environ/pull/573>`_.
+- Added django-prometheus database backend aliases to DB URL parsing schemes
+  `#559 <https://github.com/joke2k/django-environ/pull/559>`_.
+
+Changed
++++++++
+- Declared support for Python 3.14
+  `#580 <https://github.com/joke2k/django-environ/pull/581>`_.
+- Declared support for Django 5.2 and Django 6.0
+  `#578 <https://github.com/joke2k/django-environ/pull/578>`_.
+
+Fixed
++++++
+- Improved type hint coverage and related lint issues
+  `#546 <https://github.com/joke2k/django-environ/pull/546>`_.
+- Fixed typos in the FAQ page
+  `#445 <https://github.com/joke2k/django-environ/pull/445>`_.
+
+
+`v0.12.1`_ - 13-February-2026
+-----------------------------
+Fixed
++++++
+- Fixed PostgreSQL cluster URL parsing with bracketed IPv6 hosts in recent
+  Python versions, preventing failures in runtime URL parsing and related
+  regression tests
+  `#574 <https://github.com/joke2k/django-environ/issues/574>`_.
+- Fixed debug logging in ``Env.get_value()`` to avoid evaluating lazy default
+  objects when DEBUG logging is enabled
+  `#571 <https://github.com/joke2k/django-environ/issues/571>`_.
+
+
+`v0.12.0`_ - 8-November-2024
+-----------------------------
+Fixed
++++++
+- Include prefix in the ``ImproperlyConfigured`` error message
+  `#513 <https://github.com/joke2k/django-environ/issues/513>`_.
+
+Added
++++++
+- Add support for Python 3.12 and 3.13
+  `#538 <https://github.com/joke2k/django-environ/issues/538>`_.
+- Add support for Django 5.1
+  `#535 <https://github.com/joke2k/django-environ/issues/535>`_.
+- Add support for Django CockroachDB driver
+  `#509 <https://github.com/joke2k/django-environ/issues/509>`_.
+- Add support for Django Channels
+  `#266 <https://github.com/joke2k/django-environ/issues/266>`_.
+
+Changed
++++++++
+- Disabled inline comments handling by default due to potential side effects.
+  While the feature itself is useful, the project's philosophy dictates that
+  it should not be enabled by default for all users
+  `#499 <https://github.com/joke2k/django-environ/issues/499>`_.
+
+Removed
++++++++
+- Removed support of Python 3.6, 3.7 and 3.8
+  `#538 <https://github.com/joke2k/django-environ/issues/538>`_.
+- Removed support of Django 1.x.
+  `#538 <https://github.com/joke2k/django-environ/issues/538>`_.
+
+
+`v0.11.2`_ - 1-September-2023
+-----------------------------
+Fixed
++++++
+- Revert "Add variable expansion." feature
+  due to `#490 <https://github.com/joke2k/django-environ/issues/490>`_.
+
+
+`v0.11.1`_ - 30-August-2023
+---------------------------
+Fixed
++++++
+- Revert "Add interpolate argument to avoid resolving proxied values." feature
+  due to `#485 <https://github.com/joke2k/django-environ/issues/485>`_.
+
+
+`v0.11.0`_ - 30-August-2023
+---------------------------
+Added
++++++
+- Added support for Django 4.2
+  `#456 <https://github.com/joke2k/django-environ/pull/456>`_.
+- Added support for secure Elasticsearch connections
+  `#463 <https://github.com/joke2k/django-environ/pull/463>`_.
+- Added variable expansion
+  `#468 <https://github.com/joke2k/django-environ/pull/468>`_.
+- Added capability to handle comments after ``#``, after quoted values,
+  like ``KEY= 'part1 # part2' # comment``
+  `#475 <https://github.com/joke2k/django-environ/pull/475>`_.
+- Added support for ``interpolate`` parameter
+  `#415 <https://github.com/joke2k/django-environ/pull/415>`_.
+
+Changed
++++++++
+- Used ``mssql-django`` as engine for SQL Server
+  `#446 <https://github.com/joke2k/django-environ/pull/446>`_.
+- Changed handling bool values, stripping whitespace around value
+  `#475 <https://github.com/joke2k/django-environ/pull/475>`_.
+- Use ``importlib.util.find_spec`` to ``replace pkgutil.find_loader``
+  `#482 <https://github.com/joke2k/django-environ/pull/482>`_.
+
+
+Removed
++++++++
+- Removed support of Python 3.5.
+
+
 `v0.10.0`_ - 2-March-2023
--------------------------------
+-------------------------
 Added
 +++++
 - Use the core redis library by default if running Django >= 4.0
@@ -29,7 +152,7 @@ Deprecated
 Changed
 +++++++
 - Used UTF-8 as a encoding when open ``.env`` file.
-- Provided access to ```DB_SCHEMES`` through ``cls`` rather than
+- Provided access to ``DB_SCHEMES`` through ``cls`` rather than
   ``Env`` in ``db_url_config``
   `#414 <https://github.com/joke2k/django-environ/pull/414>`_.
 - Correct CI workflow to use supported Python versions/OS matrix
@@ -341,7 +464,13 @@ Added
 - Initial release.
 
 
-.. _v0.10.0: https://github.com/joke2k/django-environ/compare/v0.9.0...develop
+.. _v0.13.0: https://github.com/joke2k/django-environ/compare/v0.12.1...v0.13.0
+.. _v0.12.1: https://github.com/joke2k/django-environ/compare/v0.12.0...v0.12.1
+.. _v0.12.0: https://github.com/joke2k/django-environ/compare/v0.11.2...v0.12.0
+.. _v0.11.2: https://github.com/joke2k/django-environ/compare/v0.11.1...v0.11.2
+.. _v0.11.1: https://github.com/joke2k/django-environ/compare/v0.11.0...v0.11.1
+.. _v0.11.0: https://github.com/joke2k/django-environ/compare/v0.10.0...v0.11.0
+.. _v0.10.0: https://github.com/joke2k/django-environ/compare/v0.9.0...v0.10.0
 .. _v0.9.0: https://github.com/joke2k/django-environ/compare/v0.8.1...v0.9.0
 .. _v0.8.1: https://github.com/joke2k/django-environ/compare/v0.8.0...v0.8.1
 .. _v0.8.0: https://github.com/joke2k/django-environ/compare/v0.7.0...v0.8.0

@@ -1,11 +1,13 @@
 # This file is part of the django-environ.
 #
-# Copyright (c) 2021-2022, Serghei Iakovlev <egrep@protonmail.ch>
+# Copyright (c) 2024-present, Daniele Faraglia <daniele.faraglia@gmail.com>
+# Copyright (c) 2021-2024, Serghei Iakovlev <oss@serghei.pl>
 # Copyright (c) 2013-2021, Daniele Faraglia <daniele.faraglia@gmail.com>
 #
 # For the full copyright and license information, please view
 # the LICENSE.txt file that was distributed with this source code.
 
+import re
 import warnings
 
 import pytest
@@ -59,6 +61,14 @@ from environ.compat import DJANGO_POSTGRES
          '',
          ''
          ),
+        # cockroachdb://username:secret@test.example.com:26258/dbname
+        ('cockroachdb://username:secret@test.example.com:26258/dbname',
+         'django_cockroachdb',
+         'dbname',
+         'test.example.com',
+         'username',
+         'secret',
+         26258),
         # mysqlgis://user:password@host:port/dbname
         ('mysqlgis://enigma:secret@example.com:5431/dbname',
          'django.contrib.gis.db.backends.mysql',
@@ -115,10 +125,42 @@ from environ.compat import DJANGO_POSTGRES
          'cn=admin,dc=nodomain,dc=org',
          'secret',
          ''),
+        # prometheus-postgresql://user:password@host:port/dbname
+        ('prometheus-postgresql://enigma:secret@example.com:5431/dbname',
+         'django_prometheus.db.backends.postgresql',
+         'dbname',
+         'example.com',
+         'enigma',
+         'secret',
+         5431),
+        # prometheus-postgis://user:password@host:port/dbname
+        ('prometheus-postgis://enigma:secret@example.com:5431/dbname',
+         'django_prometheus.db.backends.postgis',
+         'dbname',
+         'example.com',
+         'enigma',
+         'secret',
+         5431),
+        # prometheus-mysql://user:password@host:port/dbname
+        ('prometheus-mysql://enigma:secret@example.com:3306/dbname',
+         'django_prometheus.db.backends.mysql',
+         'dbname',
+         'example.com',
+         'enigma',
+         'secret',
+         3306),
+        # prometheus-sqlite:////absolute/path/to/db/file
+        ('prometheus-sqlite:////full/path/to/your/file.sqlite',
+         'django_prometheus.db.backends.sqlite3',
+         '/full/path/to/your/file.sqlite',
+         '',
+         '',
+         '',
+         ''),
         # mysql://user:password@host/dbname
         ('mssql://enigma:secret@example.com/dbname'
          '?driver=ODBC Driver 13 for SQL Server',
-         'sql_server.pyodbc',
+         'mssql',
          'dbname',
          'example.com',
          'enigma',
@@ -127,12 +169,28 @@ from environ.compat import DJANGO_POSTGRES
         # mysql://user:password@host:port/dbname
         ('mssql://enigma:secret@amazonaws.com\\insnsnss:12345/dbname'
          '?driver=ODBC Driver 13 for SQL Server',
-         'sql_server.pyodbc',
+         'mssql',
          'dbname',
          'amazonaws.com\\insnsnss',
          'enigma',
          'secret',
          12345),
+         # mysql://user:password@host:port/dbname
+        ('mysql://enigma:><{~!@#$%^&*}[]@example.com:1234/dbname',
+         'django.db.backends.mysql',
+         'dbname',
+         'example.com',
+         'enigma',
+         '><{~!@#$%^&*}[]',
+         1234),
+        # mysql://user:password@host/dbname
+        ('mysql://enigma:]password]@example.com/dbname',
+         'django.db.backends.mysql',
+         'dbname',
+         'example.com',
+         'enigma',
+         ']password]',
+         ''),
     ],
     ids=[
         'postgres',
@@ -140,6 +198,7 @@ from environ.compat import DJANGO_POSTGRES
         'postgis',
         'postgres_cluster',
         'postgres_no_ports',
+        'cockroachdb',
         'mysqlgis',
         'cleardb',
         'mysql_no_password',
@@ -147,8 +206,14 @@ from environ.compat import DJANGO_POSTGRES
         'sqlite_file',
         'sqlite_memory',
         'ldap',
+        'prometheus-postgresql',
+        'prometheus-postgis',
+        'prometheus-mysql',
+        'prometheus-sqlite',
         'mssql',
         'mssql_port',
+        'mysql_password_special_chars',
+        'mysql_invalid_ipv6_password',
     ],
 )
 def test_db_parsing(url, engine, name, host, user, passwd, port):
@@ -170,6 +235,16 @@ def test_db_parsing(url, engine, name, host, user, passwd, port):
         assert config['OPTIONS'] == {'reconnect': 'true'}
 
 
+def test_custom_db_engine():
+    """Override ENGINE determined from schema."""
+    env_url = 'postgres://enigma:secret@example.com:5431/dbname'
+
+    engine = 'mypackage.backends.whatever'
+    url = Env.db_url_config(env_url, engine=engine)
+
+    assert url['ENGINE'] == engine
+
+
 def test_postgres_complex_db_name_parsing():
     """Make sure we can use complex postgres host."""
     env_url = (
@@ -185,6 +260,37 @@ def test_postgres_complex_db_name_parsing():
     assert url['USER'] == 'user'
     assert url['PASSWORD'] == 'password'
     assert url['PORT'] == ''
+
+
+def test_postgres_cluster_with_ipv6_parsing():
+    """Parse postgres cluster URLs containing bracketed IPv6 hosts."""
+    env_url = (
+        'postgres://username:p@ss:12,wor:34d@'
+        'host1:111,22.55.44.88:222,[2001:db8::1234]:333/db'
+    )
+
+    url = Env.db_url_config(env_url)
+
+    assert url['ENGINE'] == DJANGO_POSTGRES
+    assert url['NAME'] == 'db'
+    assert url['HOST'] == 'host1,22.55.44.88,[2001:db8::1234]'
+    assert url['USER'] == 'username'
+    assert url['PASSWORD'] == 'p@ss:12,wor:34d'
+    assert url['PORT'] == '111,222,333'
+
+
+def test_postgres_cluster_with_ipv6_without_port_parsing():
+    """Keep bracketed IPv6 hosts in cluster URLs even when port is omitted."""
+    env_url = 'postgres://user:pass@host1:111,[2001:db8::1234],host3:333/db'
+
+    url = Env.db_url_config(env_url)
+
+    assert url['ENGINE'] == DJANGO_POSTGRES
+    assert url['NAME'] == 'db'
+    assert url['HOST'] == 'host1,[2001:db8::1234],host3'
+    assert url['USER'] == 'user'
+    assert url['PASSWORD'] == 'pass'
+    assert url['PORT'] == '111,333'
 
 
 @pytest.mark.parametrize(
@@ -230,6 +336,64 @@ def test_memory_sqlite_url_warns_about_netloc(recwarn):
     assert url['NAME'] == ':memory:'
 
 
+def test_ldap_url_with_port():
+    """Keep LDAP host and include port in NAME when explicitly provided."""
+    env_url = 'ldap://cn=admin,dc=nodomain,dc=org:secret@example.com:1234'
+    url = Env.db_url_config(env_url)
+
+    assert url['ENGINE'] == 'ldapdb.backends.ldap'
+    assert url['NAME'] == 'ldap://example.com:1234'
+    assert url['HOST'] == 'example.com'
+    assert url['USER'] == 'cn=admin,dc=nodomain,dc=org'
+    assert url['PASSWORD'] == 'secret'
+    assert url['PORT'] == 1234
+
+
+def test_oracle_descriptor_without_path_matches_slash_variant():
+    base_descriptor = (
+        '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=oracle_dev)(PORT=1521))'
+        '(CONNECT_DATA=(SERVICE_NAME=XEPDB1)))'
+    )
+    url_without_path = (
+        f'oracle://super_user:super_pass@{base_descriptor}'
+    )
+    url_with_path = (
+        f'oracle://super_user:super_pass@{base_descriptor}/'
+    )
+
+    no_path = Env.db_url_config(url_without_path)
+    with_path = Env.db_url_config(url_with_path)
+
+    assert no_path['NAME'].lower() == with_path['NAME']
+    assert '%' not in no_path['NAME']
+
+
+def test_oracle_standard_url_still_parses():
+    url = 'oracle://super_user:super_pass@oracle_dev:1521/XEPDB1'
+    config = Env.db_url_config(url)
+
+    assert config['ENGINE'] == 'django.db.backends.oracle'
+    assert config['NAME'] == 'XEPDB1'
+    assert config['HOST'] == 'oracle_dev'
+    assert config['PORT'] == '1521'
+    assert config['USER'] == 'super_user'
+    assert config['PASSWORD'] == 'super_pass'
+
+
+def test_oracle_descriptor_without_path_preserves_password_reserved_chars():
+    descriptor = (
+        '(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=oracle_dev)(PORT=1521))'
+        '(CONNECT_DATA=(SERVICE_NAME=XEPDB1)))'
+    )
+    url = f'oracle://super_user:pa#ss@{descriptor}'
+    config = Env.db_url_config(url)
+
+    assert config['ENGINE'] == 'django.db.backends.oracle'
+    assert config['USER'] == 'super_user'
+    assert config['PASSWORD'] == 'pa#ss'
+    assert '%' not in config['NAME']
+
+
 def test_database_options_parsing():
     url = 'postgres://user:pass@host:1234/dbname?conn_max_age=600'
     url = Env.db_url_config(url)
@@ -248,3 +412,98 @@ def test_database_options_parsing():
     assert url['OPTIONS'] == {
         'init_command': 'SET storage_engine=INNODB',
     }
+
+
+def test_database_options_parsing_with_specific_cast():
+    url = (
+        'mysql://user:pass@host:1234/dbname?'
+        'reconnect=true&init_command=SET storage_engine=INNODB&connect_timeout=10'
+    )
+    url = Env.db_url_config(url, options_cast={'reconnect': bool})
+    assert url['OPTIONS'] == {
+        'reconnect': True,
+        'init_command': 'SET storage_engine=INNODB',
+        'connect_timeout': 10,
+    }
+
+
+def test_database_options_parsing_with_db_url_specific_cast():
+    env = Env()
+    env.ENVIRON['DATABASE_URL'] = 'mysql://user:pass@host:1234/dbname?ssl=true'
+    url = env.db_url(options_cast={'ssl': bool})
+    assert url['OPTIONS'] == {
+        'ssl': True,
+    }
+
+
+def test_database_options_parsing_with_db_url_extra_options():
+    env = Env()
+    env.ENVIRON['DATABASE_URL'] = 'postgres://user:pass@host:1234/dbname'
+    url = env.db_url(extra_options={
+        'pool': {'min_size': 2, 'max_size': 4, 'timeout': 10},
+    })
+    assert url['OPTIONS'] == {
+        'pool': {'min_size': 2, 'max_size': 4, 'timeout': 10},
+    }
+
+
+def test_database_options_parsing_with_extra_options_override():
+    url = 'postgres://user:pass@host:1234/dbname?pool=disabled&sslmode=require'
+    url = Env.db_url_config(url, extra_options={
+        'pool': {'min_size': 2, 'max_size': 4, 'timeout': 10},
+    })
+    assert url['OPTIONS'] == {
+        'pool': {'min_size': 2, 'max_size': 4, 'timeout': 10},
+        'sslmode': 'require',
+    }
+
+
+def test_database_extra_options_are_not_cast():
+    url = 'mysql://user:pass@host:1234/dbname?ssl=true'
+    url = Env.db_url_config(
+        url,
+        options_cast={'ssl': bool},
+        extra_options={'ssl': 'false'},
+    )
+    assert url['OPTIONS']['ssl'] == 'false'
+    assert isinstance(url['OPTIONS']['ssl'], str)
+
+
+def test_database_options_parsing_without_specific_cast():
+    url = 'mysql://user:pass@host:1234/dbname?reconnect=true&ssl=true'
+    url = Env.db_url_config(url)
+    assert url['OPTIONS'] == {
+        'reconnect': 'true',
+        'ssl': 'true',
+    }
+
+
+def test_database_options_parsing_with_callable_specific_cast():
+    url = 'mysql://user:pass@host:1234/dbname?ssl=true&retry_count=2'
+    url = Env.db_url_config(
+        url,
+        options_cast={'ssl': lambda value: value.upper()},
+    )
+    assert url['OPTIONS'] == {
+        'ssl': 'TRUE',
+        'retry_count': 2,
+    }
+
+
+def test_unknown_engine_warns_and_returns_empty_dict(recwarn):
+    result = Env.db_url_config('localhost')
+
+    assert result == {}
+    assert len(recwarn) == 1
+    assert recwarn.pop(UserWarning)
+
+
+def test_db_schemes_are_valid_url_schemes():
+    """All DB_SCHEMES keys must be valid URL schemes per RFC 3986."""
+    # RFC 3986: scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+    scheme_re = re.compile(r'^[a-zA-Z][a-zA-Z0-9+\-.]*$')
+    for scheme in Env.DB_SCHEMES:
+        assert scheme_re.match(scheme), (
+            f"DB_SCHEMES key {scheme!r} is not a valid URL scheme "
+            f"(RFC 3986 allows only letters, digits, '+', '-', '.')"
+        )

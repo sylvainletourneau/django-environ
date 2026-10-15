@@ -1,6 +1,7 @@
 # This file is part of the django-environ.
 #
-# Copyright (c) 2021-2022, Serghei Iakovlev <egrep@protonmail.ch>
+# Copyright (c) 2024-present, Daniele Faraglia <daniele.faraglia@gmail.com>
+# Copyright (c) 2021-2024, Serghei Iakovlev <oss@serghei.pl>
 # Copyright (c) 2013-2021, Daniele Faraglia <daniele.faraglia@gmail.com>
 #
 # For the full copyright and license information, please view
@@ -9,17 +10,18 @@
 from unittest import mock
 
 import pytest
+import django
+from django.core.exceptions import ImproperlyConfigured
 
 import environ.compat
 from environ import Env
 from environ.compat import (
-    ImproperlyConfigured,
     PYMEMCACHE_DRIVER,
     REDIS_DRIVER,
 )
 
 
-def test_base_options_parsing():
+def test_base_options_parsing_memcache():
     url = ('memcache://127.0.0.1:11211/?timeout=0&'
            'key_prefix=cache_&key_function=foo.get_key&version=1')
     url = Env.cache_url_config(url)
@@ -29,10 +31,29 @@ def test_base_options_parsing():
     assert url['TIMEOUT'] == 0
     assert url['VERSION'] == 1
 
-    url = 'redis://127.0.0.1:6379/?timeout=None'
-    url = Env.cache_url_config(url)
 
-    assert url['TIMEOUT'] is None
+@pytest.mark.parametrize('redis_driver,timeout_key',
+    [
+        ('django.core.cache.backends.redis.RedisCache', 'timeout'),
+        ('django_redis.cache.RedisCache', 'TIMEOUT'),
+    ],
+    ids=[
+        'django',
+        'django_redis',
+    ],
+)
+def test_base_options_parsing_redis(redis_driver, timeout_key):
+    mocked_cache_schemes = Env.CACHE_SCHEMES.copy()
+    mocked_cache_schemes.update({
+        'rediscache': redis_driver,
+        'redis': redis_driver,
+        'rediss': redis_driver,
+    })
+    with mock.patch.object(Env, 'CACHE_SCHEMES', mocked_cache_schemes):
+        url = 'redis://127.0.0.1:6379/?timeout=None'
+        url = Env.cache_url_config(url)
+
+        assert url[timeout_key] is None
 
 
 @pytest.mark.parametrize(
@@ -101,14 +122,14 @@ def test_cache_parsing(url, backend, location):
     assert url['LOCATION'] == location
 
 
-@pytest.mark.parametrize('django_version', ((3, 2), (3, 1), None))
+@pytest.mark.parametrize('django_version', ((3, 2), (3, 1)))
 @pytest.mark.parametrize('pymemcache_installed', (True, False))
 def test_pymemcache_compat(django_version, pymemcache_installed):
     old = 'django.core.cache.backends.memcached.PyLibMCCache'
     new = 'django.core.cache.backends.memcached.PyMemcacheCache'
-    with mock.patch.object(environ.compat, 'DJANGO_VERSION', django_version):
-        with mock.patch('environ.compat.find_loader') as mock_find_loader:
-            mock_find_loader.return_value = pymemcache_installed
+    with mock.patch.object(django, 'VERSION', django_version):
+        with mock.patch('environ.compat.find_spec') as mock_find_spec:
+            mock_find_spec.return_value = pymemcache_installed
             driver = environ.compat.choose_pymemcache_driver()
             if django_version and django_version < (3, 2):
                 assert driver == old
@@ -116,44 +137,82 @@ def test_pymemcache_compat(django_version, pymemcache_installed):
                 assert driver == new if pymemcache_installed else old
 
 
-@pytest.mark.parametrize('django_version', ((4, 0), (3, 2), None))
-@pytest.mark.parametrize('redis_cache_installed', (True, False))
-def test_rediscache_compat(django_version, redis_cache_installed):
+@pytest.mark.parametrize('django_version', ((4, 0), (3, 2)))
+@pytest.mark.parametrize('django_redis_installed', (True, False))
+def test_rediscache_compat(django_version, django_redis_installed):
     django_new = 'django.core.cache.backends.redis.RedisCache'
     redis_cache = 'redis_cache.RedisCache'
-    django_old = 'django_redis.cache.RedisCache'
+    django_redis = 'django_redis.cache.RedisCache'
 
-    with mock.patch.object(environ.compat, 'DJANGO_VERSION', django_version):
-        with mock.patch('environ.compat.find_loader') as mock_find_loader:
-            mock_find_loader.return_value = redis_cache_installed
+    with mock.patch.object(django, 'VERSION', django_version):
+        with mock.patch('environ.compat.find_spec') as mock_find_spec:
+            mock_find_spec.return_value = django_redis_installed
             driver = environ.compat.choose_rediscache_driver()
-            if django_version and django_version >= (4, 0):
+            if django_redis_installed:
+                assert driver == django_redis
+            elif django_version and django_version >= (4, 0):
                 assert driver == django_new
             else:
-                assert driver == redis_cache if redis_cache_installed else django_old
+                assert driver == redis_cache
 
 
-def test_redis_parsing():
-    url = ('rediscache://127.0.0.1:6379/1?client_class='
-           'django_redis.client.DefaultClient&password=secret')
-    url = Env.cache_url_config(url)
+@pytest.mark.parametrize('redis_driver,client_class_key,password_key',
+    [
+        ('django.core.cache.backends.redis.RedisCache', 'client_class', 'password'),
+        ('django_redis.cache.RedisCache', 'CLIENT_CLASS', 'PASSWORD'),
+    ],
+    ids=[
+        'django',
+        'django_redis',
+    ],
+)
+def test_redis_parsing(redis_driver, client_class_key, password_key):
+    mocked_cache_schemes = Env.CACHE_SCHEMES.copy()
+    mocked_cache_schemes.update({
+        'rediscache': redis_driver,
+        'redis': redis_driver,
+        'rediss': redis_driver,
+    })
+    with mock.patch.object(Env, 'CACHE_SCHEMES', mocked_cache_schemes):
+        url = ('rediscache://127.0.0.1:6379/1?client_class='
+               'django_redis.client.DefaultClient&password=secret')
+        url = Env.cache_url_config(url)
 
-    assert url['BACKEND'] == REDIS_DRIVER
-    assert url['LOCATION'] == 'redis://127.0.0.1:6379/1'
-    assert url['OPTIONS'] == {
-        'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        'PASSWORD': 'secret',
-    }
+        assert url['BACKEND'] == redis_driver
+        assert url['LOCATION'] == 'redis://127.0.0.1:6379/1'
+        assert url['OPTIONS'] == {
+            client_class_key: 'django_redis.client.DefaultClient',
+            password_key: 'secret',
+        }
 
 
-def test_redis_socket_url():
-    url = 'redis://:redispass@/path/to/socket.sock?db=0'
-    url = Env.cache_url_config(url)
-    assert REDIS_DRIVER == url['BACKEND']
-    assert url['LOCATION'] == 'unix://:redispass@/path/to/socket.sock'
-    assert url['OPTIONS'] == {
-        'DB': 0
-    }
+@pytest.mark.parametrize('redis_driver,client_class_key',
+    [
+        ('django.core.cache.backends.redis.RedisCache', 'client_class'),
+        ('django_redis.cache.RedisCache', 'CLIENT_CLASS'),
+    ],
+    ids=[
+        'django',
+        'django_redis',
+    ],
+)
+def test_redis_socket_url(redis_driver, client_class_key):
+    mocked_cache_schemes = Env.CACHE_SCHEMES.copy()
+    mocked_cache_schemes.update({
+        'rediscache': redis_driver,
+        'redis': redis_driver,
+        'rediss': redis_driver,
+    })
+    with mock.patch.object(Env, 'CACHE_SCHEMES', mocked_cache_schemes):
+        url = ('redis://:redispass@/path/to/socket.sock?db=0'
+               '&client_class=django_redis.client.DefaultClient')
+        url = Env.cache_url_config(url)
+
+        assert url['BACKEND'] == redis_driver
+        assert url['LOCATION'] == 'unix://:redispass@/path/to/socket.sock?db=0'
+        assert url['OPTIONS'] == {
+            client_class_key: 'django_redis.client.DefaultClient'
+        }
 
 
 def test_options_parsing():

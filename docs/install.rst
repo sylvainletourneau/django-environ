@@ -6,8 +6,8 @@ Installation
 Requirements
 ============
 
-* `Django <https://www.djangoproject.com/>`_ >= 1.11
-* `Python <https://www.python.org/>`_ >= 3.5
+* `Django <https://www.djangoproject.com/>`_ >= 2.2
+* `Python <https://www.python.org/>`_ >= 3.10
 
 Installing django-environ
 =========================

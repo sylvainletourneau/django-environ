@@ -2,6 +2,71 @@
 Tips
 ====
 
+Handling Inline Comments in .env Files
+======================================
+
+``django-environ`` provides an optional feature to parse inline comments in ``.env``
+files. This is controlled by the ``parse_comments`` parameter in the ``read_env``
+method.
+
+Modes
+-----
+
+- **Enabled (``parse_comments=True``)**: Inline comments starting with ``#`` will be ignored.
+- **Disabled (``parse_comments=False``)**: The entire line, including comments, will be read as the value.
+- **Default**: The behavior is the same as when ``parse_comments=False``.
+
+Side Effects
+------------
+
+While this feature can be useful for adding context to your ``.env`` files,
+it can introduce unexpected behavior. For example, if your value includes
+a ``#`` symbol, it will be truncated when ``parse_comments=True``.
+
+Why Disabled by Default?
+------------------------
+
+In line with the project's philosophy of being explicit and avoiding unexpected behavior,
+this feature is disabled by default. If you understand the implications and find the feature
+useful, you can enable it explicitly.
+
+Example
+-------
+
+Here is an example demonstrating the different modes of handling inline comments.
+
+**.env file contents**:
+
+.. code-block:: shell
+
+   # .env file contents
+   BOOL_TRUE_WITH_COMMENT=True # This is a comment
+   STR_WITH_HASH=foo#bar # This is also a comment
+
+**Python code**:
+
+.. code-block:: python
+
+   import environ
+
+   # Using parse_comments=True
+   env = environ.Env()
+   env.read_env(parse_comments=True)
+   print(env('BOOL_TRUE_WITH_COMMENT'))  # Output: True
+   print(env('STR_WITH_HASH'))  # Output: foo
+
+   # Using parse_comments=False
+   env = environ.Env()
+   env.read_env(parse_comments=False)
+   print(env('BOOL_TRUE_WITH_COMMENT'))  # Output: True # This is a comment
+   print(env('STR_WITH_HASH'))  # Output: foo#bar # This is also a comment
+
+   # Using default behavior
+   env = environ.Env()
+   env.read_env()
+   print(env('BOOL_TRUE_WITH_COMMENT'))  # Output: True # This is a comment
+   print(env('STR_WITH_HASH'))  # Output: foo#bar # This is also a comment
+
 
 Docker-style file based variables
 =================================
@@ -62,6 +127,54 @@ To disable it use ``env.smart_cast = False``.
 .. note::
 
    The next major release will disable it by default.
+
+
+Callable defaults (lazy evaluation)
+====================================
+
+The ``default`` argument accepts any callable (a function, lambda, or class
+that implements ``__call__``). When the environment variable is absent the
+callable is invoked with no arguments and its return value is used as the
+default. The callable is **not** invoked when the variable is present in the
+environment.
+
+This is useful when generating a default value has side-effects (e.g.
+creating a temporary directory) and you only want that to happen when the
+variable is truly missing.
+
+.. code-block:: python
+
+   import tempfile
+   import environ
+
+   env = environ.Env()
+
+   # tempfile.mkdtemp() is called only when MEDIA_ROOT is not set
+   MEDIA_ROOT = env('MEDIA_ROOT', default=tempfile.mkdtemp)
+
+.. note::
+
+   When ``smart_cast`` is enabled (the default), the cast type is **not**
+   inferred from a callable default. Provide an explicit ``cast`` or a type
+   in the scheme tuple if you need type coercion.
+
+
+Warn when defaults are used
+===========================
+
+If you want visibility when a missing environment variable falls back to a
+default value, enable warnings on the ``Env`` instance:
+
+.. code-block:: python
+
+   import environ
+
+   env = environ.Env()
+   env.warn_on_default = True
+   value = env("MISSING_VAR", default="fallback")
+
+When enabled, ``django-environ`` emits ``DefaultValueWarning`` for missing
+variables that return an explicit default.
 
 
 Multiple redis cache locations
@@ -222,22 +335,55 @@ The following example demonstrates the above:
    print(env.str('ESCAPED_CERT', multiline=False))
    # ---BEGIN---\\n---END---
 
+Restrict string values with choices
+===================================
+
+You can restrict ``env.str()`` to an allowed list of values using
+``choices``. If the value is not in the provided list,
+``django.core.exceptions.ImproperlyConfigured`` is raised.
+
+.. code-block:: python
+
+   import environ
+   from django.core.exceptions import ImproperlyConfigured
+
+   env = environ.Env()
+
+   # APP_ENV=prod
+   env.str("APP_ENV", choices=("dev", "prod", "staging"))  # "prod"
+
+   # APP_ENV=unknown
+   try:
+       env.str("APP_ENV", choices=("dev", "prod", "staging"))
+   except ImproperlyConfigured:
+       ...
+
 Proxy value
 ===========
 
-Values that being with a ``$`` may be interpolated. Pass ``interpolate=True`` to
-``environ.Env()`` to enable this feature:
+Values that begin with a ``$`` may be interpolated. This feature is enabled by
+default:
 
 .. code-block:: python
 
    import environ
 
-   env = environ.Env(interpolate=True)
+   env = environ.Env()
 
    # BAR=FOO
    # PROXY=$BAR
-   >>> print env.str('PROXY')
-   FOO
+   assert env.str('PROXY') == 'FOO'
+
+To disable proxy interpolation and read the raw value instead, set
+``env.interpolate = False``:
+
+.. code-block:: python
+
+   env = environ.Env()
+   env.interpolate = False
+
+   # PROXY=$BAR
+   assert env.str('PROXY') == '$BAR'
 
 
 Escape Proxy
@@ -330,6 +476,48 @@ an existing set environment variable, use the ``overwrite=True`` argument of
 
    env = environ.Env()
    env.read_env(BASE_DIR('.env'), overwrite=True)
+
+
+Create a configured Env in one step
+-----------------------------------
+
+Use :meth:`.environ.Env.configured` to create an ``Env`` instance and configure
+its flags in a single call:
+
+.. code-block:: python
+
+   env = environ.Env.configured(
+       prefix='DJANGO_',
+       smart_cast=False,
+       warn_on_default=True,
+   )
+
+   env.bool('DEBUG', default=False)
+
+Pass an env file path to read it after the instance has been configured:
+
+.. code-block:: python
+
+   env = environ.Env.configured(
+       BASE_DIR('.env'),
+       overwrite=True,
+       parse_comments=True,
+       prefix='DJANGO_',
+       smart_cast=False,
+   )
+
+The regular ``Env`` constructor remains reserved for schema declarations. Pass
+schemas with the ``scheme`` argument when using ``configured``:
+
+.. code-block:: python
+
+   env = environ.Env.configured(
+       BASE_DIR('.env'),
+       scheme={
+           'DEBUG': (bool, False),
+           'DATABASE_URL': str,
+       },
+   )
 
 
 Handling prefixes
